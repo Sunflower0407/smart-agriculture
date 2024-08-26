@@ -1,0 +1,173 @@
+#include <DHT.h>  // Include the DHT sensor library
+#include <Arduino.h> // Include the base Arduino library
+#include <Wire.h>  // Include the Wire library for I2C communication
+#include <BluetoothSerial.h>  // Include the Bluetooth library for ESP32
+
+BluetoothSerial BT;  // Create a BluetoothSerial object named BT
+
+// Pin definitions
+#define DHTPIN 4  // DHT sensor pin
+#define DHTTYPE DHT11  // DHT sensor type (DHT11)
+#define GMDZ 15  // Pin for soil moisture sensor
+#define TRSD 2  // Pin for another sensor (e.g., light sensor)
+#define relay1 13  // Relay pin 1
+#define relay2 14  // Relay pin 2
+#define relay3 26  // Relay pin 3
+#define relay4 33  // Relay pin 4
+#define LED 5  // LED pin
+#define Buzzer 32  // Buzzer pin
+
+unsigned long previousMillis = 0;  // Variable to store the last time data was sent
+const long interval = 1000;  // Interval at which to send data (milliseconds)
+bool isLineFollowingMode = true;  // Flag for mode selection
+
+void setup() {
+  Serial.begin(9600);  // Initialize serial communication at 9600 bps
+  BT.begin("ESP32");  // Initialize Bluetooth and set device name to 'ESP32'
+  dht.begin();  // Initialize DHT sensor
+  // Initialize pins
+  pinMode(DHTPIN, OUTPUT);
+  pinMode(GMDZ, INPUT);
+  pinMode(TRSD, INPUT);
+  pinMode(relay1, OUTPUT);
+  pinMode(relay2, OUTPUT);
+  pinMode(relay3, OUTPUT);
+  pinMode(relay4, OUTPUT);
+  pinMode(Buzzer, OUTPUT);
+  pinMode(LED, OUTPUT);
+  // Set initial relay states
+  digitalWrite(relay1, HIGH);  
+  digitalWrite(relay2, HIGH);  
+  digitalWrite(relay3, HIGH);  
+  digitalWrite(relay4, LOW);  
+}
+
+// Function to control relays via Bluetooth
+void bluetoothControl() {
+  delay(10);
+  if (BT.available()) {
+    char command = BT.read();  // Read Bluetooth command
+    switch (command) {
+      case 'A':  // Command to turn relay1 ON
+        digitalWrite(relay1, LOW);
+        break;
+      case 'B':  // Command to turn relay1 OFF
+        digitalWrite(relay1, HIGH);
+        break;
+      case 'C':  // Command to turn relay2 ON
+        digitalWrite(relay2, LOW);
+        break;
+      case 'D':  // Command to turn relay2 OFF
+        digitalWrite(relay2, HIGH);
+        break;
+      case 'E':  // Command to turn relay3 ON
+        digitalWrite(relay3, LOW);
+        break;
+      case 'F':  // Command to turn relay3 OFF
+        digitalWrite(relay3, HIGH);
+        break;
+      case 'G':  // Command to turn relay4 ON
+        digitalWrite(relay4, HIGH);
+        break;
+      case 'H':  // Command to turn relay4 OFF
+        digitalWrite(relay4, LOW);
+        break;
+      case 'Q':  // Command to activate line following mode
+        isLineFollowingMode = true;
+        digitalWrite(LED, LOW);
+        break;
+    }
+  }
+}
+
+// Function to automatically control relays based on sensor readings
+void automatic() {
+  int sensorValue = 4095 - analogRead(GMDZ);  // Read and invert soil moisture value
+  int sensorValue1 = 4095 - analogRead(TRSD);  // Read and invert light sensor value
+  float h = dht.readHumidity();  // Read humidity
+  float t = dht.readTemperature();  // Read temperature
+  int TT = map(sensorValue1, 0, 4095, 0, 100);  // Map sensor value to 0-100%
+  int LL = map(sensorValue, 0, 4095, 0, 100);  // Map sensor value to 0-100%
+  // Control relays based on sensor values
+  if (LL <= 30) {
+    digitalWrite(relay4, HIGH);
+    digitalWrite(Buzzer, HIGH);
+  } else {
+    digitalWrite(relay4, LOW);
+    digitalWrite(Buzzer, LOW);
+  }
+  if (TT <= 45) {
+    digitalWrite(relay3, LOW);
+    digitalWrite(Buzzer, HIGH);
+  } else {
+    digitalWrite(relay3, HIGH);
+    digitalWrite(Buzzer, LOW);
+  }
+  if (t >= 30) {
+    digitalWrite(relay1, LOW);
+    digitalWrite(Buzzer, HIGH);
+  } else {
+    digitalWrite(relay1, HIGH);
+    digitalWrite(Buzzer, LOW);
+  }
+  if (h <= 36) {
+    digitalWrite(relay2, LOW);
+    digitalWrite(Buzzer, HIGH);
+  } else {
+    digitalWrite(relay2, HIGH);
+    digitalWrite(Buzzer, LOW);
+  }
+}
+
+void loop() {
+  delay(10);
+  if (BT.available()) {
+    char command = BT.read();  // Read Bluetooth command
+    switch (command) {
+      case 'W':  // Command to deactivate line following mode
+        isLineFollowingMode = false;
+        digitalWrite(LED, HIGH);
+        break;
+    }
+  }
+  if (isLineFollowingMode) {
+    automatic();  // Run automatic control function
+  } else {
+    bluetoothControl();  // Run Bluetooth control function
+  }
+  // Reading sensor values and sending data over Bluetooth and Serial
+  int sensorValue = 4095 - analogRead(GMDZ);
+  int sensorValue1 = 4095 - analogRead(TRSD);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int TT = map(sensorValue1, 0, 4095, 0, 100);
+  int LL = map(sensorValue, 0, 4095, 0, 100);
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    BT.print("temp: ");
+    BT.print(t);
+    BT.print("C");
+    BT.print("  humi: ");
+    BT.print(h);
+    BT.println("%");
+    BT.print("  light：");
+    BT.print(LL);
+    BT.print("Lux");
+    BT.print("  wetness：");
+    BT.print(TT);
+    BT.println("%");
+    Serial.print("temp: ");
+    Serial.print(t);
+    Serial.println("C");
+    Serial.print("  humi: ");
+    Serial.print(h);
+    Serial.println("%");
+    Serial.print("  light：");
+    Serial.print(LL);
+    Serial.println("Lux");
+    Serial.print("  wetness：");
+    Serial.print(TT);
+    Serial.println("%");
+  }
+}
